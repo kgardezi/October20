@@ -224,6 +224,47 @@ awk '{h=$4; sub(/\..*/,"",h)} h ~ /^[a-z][a-z][a-z][a-z][0-9][0-9][0-9](br|cl|tl
 
 ---
 
+## 6a. Real WAN events (21 Oct 2026, filtered with the grep/awk above)
+
+The filter works: only interface and OSPF changes from BR/TL/CL/DL devices come through. Hostnames and IPs below are placeholders.
+
+**OSPF-only flap on two BR routers at one location (13:25:10–13:25:24).** No interface went down, so the circuits stayed up while OSPF re-formed. This is the "circuit up but not passing OSPF" case.
+
+```
+Oct 21 13:25:10 ummm140br0302.us.corp.example Oct 21 2026 13:25:09.843 EDST: %OSPF-5-ADJCHG: Process 106, Nbr 10.0.71.23 on GigabitEthernet0/0/0.106 from INIT to 2WAY, 2-Way Received
+Oct 21 13:25:10 ummm140br0302.us.corp.example Oct 21 2026 13:25:10.066 EDST: %OSPF-5-ADJCHG: Process 104, Nbr 10.0.69.23 on GigabitEthernet0/0/0.104 from DOWN to INIT, Received Hello
+Oct 21 13:25:10 ummm140br0302.us.corp.example Oct 21 2026 13:25:10.068 EDST: %OSPF-5-ADJCHG: Process 104, Nbr 10.0.69.23 on GigabitEthernet0/0/0.104 from EXSTART to EXCHANGE, Negotiation Done
+Oct 21 13:25:11 ummm140br0302.us.corp.example Oct 21 2026 13:25:10.070 EDST: %OSPF-5-ADJCHG: Process 104, Nbr 10.0.69.23 on GigabitEthernet0/0/0.104 from LOADING to FULL, Loading Done
+Oct 21 13:25:11 ummm140br0302.us.corp.example Oct 21 2026 13:25:11.421 EDST: %OSPF-5-ADJCHG: Process 7, Nbr 10.0.64.23 on GigabitEthernet0/0/0.5 from DOWN to INIT, Received Hello
+Oct 21 13:25:12 ummm141br0802.us.corp.example Oct 21 2026 13:25:12.640 EDST: %OSPF-5-ADJCHG: Process 103, Nbr 10.0.68.20 on GigabitEthernet0/0/0.103 from INIT to 2WAY, 2-Way Received
+Oct 21 13:25:23 ummm141br0802.us.corp.example Oct 21 2026 13:25:22.235 EDST: %OSPF-5-ADJCHG: Process 103, Nbr 10.0.68.20 on GigabitEthernet0/0/0.103 from LOADING to FULL, Loading Done
+```
+
+**Short interface flaps on TL devices (7–8 seconds each):**
+
+```
+Oct 21 13:28:51 cfff601tl0101.us.corp.example Oct 21 2026 13:28:51.202 EDST: %LINK-3-UPDOWN: Interface GigabitEthernet0/0/11, changed state to up
+Oct 21 14:19:38 uooo150tl0302.us.corp.example Oct 21 2026 14:19:38.393 EDST: %LINK-3-UPDOWN: Interface GigabitEthernet0/0/0, changed state to down
+Oct 21 14:19:40 uooo150tl0302.us.corp.example Oct 21 2026 14:19:39.093 EDST: %LINEPROTO-5-UPDOWN: Line protocol on Interface GigabitEthernet0/0/0, changed state to down
+Oct 21 14:19:45 uooo150tl0302.us.corp.example Oct 21 2026 14:19:45.393 EDST: %LINK-3-UPDOWN: Interface GigabitEthernet0/0/0, changed state to up
+Oct 21 14:19:47 uooo150tl0302.us.corp.example Oct 21 2026 14:19:46.094 EDST: %LINEPROTO-5-UPDOWN: Line protocol on Interface GigabitEthernet0/0/0, changed state to up
+Oct 21 16:16:15 uppp160tl0701.us.corp.example Oct 21 2026 16:16:15.098 EDST: %LINK-3-UPDOWN: Interface GigabitEthernet0/0/8, changed state to down
+Oct 21 16:16:23 uppp160tl0701.us.corp.example Oct 21 2026 16:16:23.095 EDST: %LINK-3-UPDOWN: Interface GigabitEthernet0/0/8, changed state to up
+Oct 21 17:18:16 uppp160tl0701.us.corp.example Oct 21 2026 17:18:16.381 EDST: %LINK-3-UPDOWN: Interface GigabitEthernet0/0/12, changed state to down
+Oct 21 17:18:24 uppp160tl0701.us.corp.example Oct 21 2026 17:18:24.403 EDST: %LINK-3-UPDOWN: Interface GigabitEthernet0/0/12, changed state to up
+```
+
+### What these logs mean for the design
+
+1. **Some sites still run on BR routers.** The BR holds both the circuit and the OSPF adjacencies.
+2. **One OSPF adjacency per VRF, on a subinterface of the circuit.** On a BR, `GigabitEthernet0/0/0.100`…`.107` each run their own OSPF process (100–107), and `.5` runs process 7. That is about 9 adjacencies per circuit.
+   - Subinterface `Gi0/0/0.104` is mapped to its parent circuit `Gi0/0/0`.
+   - The circuit's OSPF is **Full only when every VRF adjacency on it is Full**. Otherwise it shows e.g. "OSPF DOWN 3/9 VRF".
+   - A flap counts as **one** drop per circuit, not one per VRF.
+3. **The recovery sequence is DOWN → INIT → 2WAY → EXSTART → EXCHANGE → LOADING → FULL.** Only `→ FULL` turns a VRF green, and only `FULL →` or `→ DOWN` turns it red. The intermediate steps are shown in the log but change nothing. An adjacency stuck in EXSTART/2WAY (for example an MTU mismatch) stays red.
+4. **Volume during a flap.** One circuit with 9 VRFs produces ~50+ lines within a few seconds. The dashboard groups them into one circuit event.
+5. **TL flaps are short (7–8 s).** They still count toward flapping (3+ drops in 10 minutes).
+
 ## 7. Open questions
 
 1. One OSPF adjacency **per circuit** (separate VLAN/subinterface per circuit), or one **per site**? If per circuit, which interface type carries it?

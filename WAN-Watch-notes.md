@@ -265,6 +265,53 @@ Oct 21 17:18:24 uppp160tl0701.us.corp.example Oct 21 2026 17:18:24.403 EDST: %LI
 4. **Volume during a flap.** One circuit with 9 VRFs produces ~50+ lines within a few seconds. The dashboard groups them into one circuit event.
 5. **TL flaps are short (7–8 s).** They still count toward flapping (3+ drops in 10 minutes).
 
+## 6b. OSPF history, 14–20 Oct 2026 (`zcat log202610{14..20}.gz | grep %OSPF-5-ADJCH | awk …`)
+
+Placeholders for hostnames and IPs as above.
+
+**CL devices: one OSPF process per VRF on `TwentyFiveGigE` subinterfaces, plus process 7 on `.5`:**
+```
+Oct 17 17:11:35 uiii902cl0202.us.corp.example Oct 17 2026 17:11:35.947 EDST: %OSPF-5-ADJCHG: Process 101, Nbr 10.0.181.35 on TwentyFiveGigE1/0/3.101 from INIT to 2WAY, 2-Way Received
+Oct 17 17:11:35 uiii902cl0202.us.corp.example Oct 17 2026 17:11:35.954 EDST: %OSPF-5-ADJCHG: Process 101, Nbr 10.0.181.35 on TwentyFiveGigE1/0/3.101 from LOADING to FULL, Loading Done
+Oct 17 17:11:36 uiii902cl0202.us.corp.example Oct 17 2026 17:11:36.854 EDST: %OSPF-5-ADJCHG: Process 7, Nbr 10.0.248.141 on TwentyFiveGigE1/0/3.5 from INIT to 2WAY, 2-Way Received
+```
+
+**CL pair at one site: OSPF on an SVI (`Vlan2108`) and on a subinterface:**
+```
+Oct 17 17:54:52 uqqq170cl0601.us.corp.example Oct 17 2026 17:54:52.594 EDST: %OSPF-5-ADJCHG: Process 108, Nbr 10.0.91.44 on Vlan2108 from LOADING to FULL, Loading Done
+Oct 17 17:54:53 uqqq170cl0602.us.corp.example Oct 17 2026 17:54:52.598 EDST: %OSPF-5-ADJCHG: Process 108, Nbr 10.0.91.43 on Vlan2108 from LOADING to FULL, Loading Done
+Oct 17 17:59:48 uqqq170cl0601.us.corp.example Oct 17 2026 17:59:47.509 EDST: %OSPF-5-ADJCHG: Process 108, Nbr 10.0.91.4 on TwentyFiveGigE1/0/1.108 from LOADING to FULL, Loading Done
+```
+
+**TL devices run OSPF process 7 directly on the circuit interface:**
+```
+Oct 17 19:10:07 cfff601tl0101.us.corp.example Oct 17 2026 19:10:07.205 EDST: %OSPF-5-ADJCHG: Process 7, Nbr 10.0.104.49 on TenGigabitEthernet0/0/25 from FULL to DOWN, Neighbor Down: Dead timer expired
+Oct 17 19:10:07 cfff602tl0701.us.corp.example Oct 17 2026 19:10:07.309 EDST: %OSPF-5-ADJCHG: Process 7, Nbr 10.0.104.51 on TenGigabitEthernet0/0/25 from FULL to INIT, 1-Way
+Oct 17 19:10:08 cfff601tl0101.us.corp.example Oct 17 2026 19:10:07.334 EDST: %OSPF-5-ADJCHG: Process 7, Nbr 10.0.104.49 on TenGigabitEthernet0/0/25 from LOADING to FULL, Loading Done
+Oct 18 04:56:16 mccc301tl1001.us.corp.example Oct 18 2026 04:56:16.063 EDST: %OSPF-5-ADJCHG: Process 7, Nbr 10.0.249.98 on GigabitEthernet0/0/0 from LOADING to FULL, Loading Done
+Oct 18 04:56:17 mccc302tl0101.us.corp.example Oct 18 2026 04:56:16.058 EDST: %OSPF-5-ADJCHG: Process 7, Nbr 10.0.249.100 on GigabitEthernet0/0/0 from LOADING to FULL, Loading Done
+```
+
+**A full outage at one site (19 Oct 20:23), then the DC TLs dropping it about a minute later:**
+```
+Oct 19 20:23:05 urrr180cl1001.us.corp.example Oct 19 2026 20:23:05.937 EDST: %OSPF-5-ADJCHG: Process 7, Nbr 10.0.248.140 on TwentyFiveGigE1/0/3.5 from FULL to DOWN, Neighbor Down: Interface down or detached
+Oct 19 20:23:05 urrr180cl1001.us.corp.example Oct 19 2026 20:23:05.937 EDST: %OSPF-5-ADJCHG: Process 100, Nbr 10.0.181.1 on TwentyFiveGigE1/0/3.100 from FULL to DOWN, Neighbor Down: Interface down or detached
+   … processes 101–107 on .101–.107, same second …
+Oct 19 20:23:06 urrr181cl1001.us.corp.example Oct 19 2026 20:23:05.939 EDST: %OSPF-5-ADJCHG: Process 108, Nbr 10.0.91.4 on TwentyFiveGigE1/0/3.108 from FULL to DOWN, Neighbor Down: Interface down or detached
+Oct 19 20:24:03 usss190tl0102.us.corp.example Oct 19 2026 20:24:02.717 EDST: %OSPF-5-ADJCHG: Process 7, Nbr 10.0.249.80 on TenGigabitEthernet0/0/10 from FULL to DOWN, Neighbor Down: Dead timer expired
+Oct 19 20:24:03 uiii900tl0201.us.corp.example Oct 19 2026 20:24:02.952 EDST: %OSPF-5-ADJCHG: Process 7, Nbr 10.0.249.253 on TenGigabitEthernet0/1/0 from FULL to DOWN, Neighbor Down: Dead timer expired
+```
+
+### What this adds to the design
+
+1. **Two OSPF layers.**
+   - **Transport:** process 7, TL ↔ TL, directly on the circuit interface (`Gi0/0/0`, `Te0/0/25`, `Te0/0/10`). This is the most direct "is the circuit passing OSPF" signal.
+   - **Service:** processes 100–108 per VRF on the CL (`TwentyFiveGigE1/0/3.100`…`.108`, or SVIs like `Vlan2108`), plus process 7 on `.5`.
+2. **Interface names normalised:** `TwentyFiveGigE` ↔ `Twe`, `Vlan` ↔ `Vl`. Subinterfaces map to their parent.
+3. **`FULL to INIT, 1-Way` counts as down**, same as `FULL to DOWN`.
+4. **DC-side detection lags.** "Interface down or detached" is instant at the site. The DC TLs only log "Dead timer expired" ~40–60 s later. The dashboard should go red on whichever end reports first.
+5. **The Ashburn site code appears in the logs** (`usss190` placeholder). **`uiii900tl0201`** (NYC site) is also a TL peering with sites. Is it a hub?
+
 ## 7. Open questions
 
 1. One OSPF adjacency **per circuit** (separate VLAN/subinterface per circuit), or one **per site**? If per circuit, which interface type carries it?
